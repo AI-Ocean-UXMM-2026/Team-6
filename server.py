@@ -22,7 +22,13 @@ import receipt_mvp
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 DB = Path(os.environ.get('HANDSHAKE_DB', str(ROOT / 'data/handshake.sqlite3')))
-PORT = int(os.environ.get('HANDSHAKE_PORT', '8800'))
+PORT = int(os.environ.get('HANDSHAKE_PORT', os.environ.get('PORT', '8800')))
+HOST = os.environ.get('HANDSHAKE_HOST', '127.0.0.1')
+PUBLIC_URL = os.environ.get('HANDSHAKE_PUBLIC_URL', os.environ.get('RENDER_EXTERNAL_URL', '')).rstrip('/')
+if PUBLIC_URL:
+    public_origin = urlparse(PUBLIC_URL)
+    if public_origin.scheme not in ('http', 'https') or not public_origin.netloc or public_origin.path or public_origin.query or public_origin.fragment or public_origin.username or public_origin.password:
+        raise ValueError('HANDSHAKE_PUBLIC_URL must be an HTTP(S) origin without a path.')
 STAFF_PASSWORD = os.environ.get('HANDSHAKE_STAFF_PASSWORD', 'handshake-demo-2026')
 STAFF = {'support': 'support', 'operations': 'operations', 'finance-a': 'finance', 'finance-b': 'finance', 'admin': 'admin'}
 METHODS = ['KPay', 'WavePay', 'UAB Pay', 'AYA Pay']
@@ -622,7 +628,9 @@ class Handler(SimpleHTTPRequestHandler):
         data=encode(value).encode()
         self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Content-Length',str(len(data)))
-        if cookie:self.send_header('Set-Cookie',cookie)
+        if cookie:
+            if PUBLIC_URL.startswith('https://'):cookie += '; Secure'
+            self.send_header('Set-Cookie',cookie)
         self.end_headers();self.wfile.write(data)
     def session(self,db):
         c=SimpleCookie();c.load(self.headers.get('Cookie',''))
@@ -637,6 +645,9 @@ class Handler(SimpleHTTPRequestHandler):
     def handle_get(self):
         path=urlparse(self.path).path
         try:
+            if path=='/api/health':
+                with connection() as db:db.execute('SELECT 1').fetchone()
+                self.respond({'status':'ok'});return
             if path.startswith('/api/mvp/'):
                 with connection() as db:
                     self.respond(receipt_mvp.handle(db,path,None,self.session(db),require,event))
@@ -728,7 +739,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             require(self.headers.get('X-Handshake')=='1' and self.headers.get('Content-Type','').startswith('application/json'),'Same-origin JSON request required.',403)
             origin=self.headers.get('Origin')
-            require(not origin or origin==f'http://{self.headers.get("Host")}','Cross-origin commands are blocked.',403)
+            require(not origin or origin==(PUBLIC_URL or f'http://{self.headers.get("Host")}'),'Cross-origin commands are blocked.',403)
             b=json.loads(raw)
             with connection(True) as db:
                 if path=='/api/session/create':
@@ -821,8 +832,8 @@ def worker(stop):
 
 if __name__=='__main__':
     initialize();stop=threading.Event();threading.Thread(target=worker,args=(stop,),daemon=True).start()
-    server=ThreadingHTTPServer(('127.0.0.1',PORT),Handler);server.lookups={};server.logins={}
-    print(f'FOM — Future of Myanmar: http://127.0.0.1:{PORT}\nLocal simulation only. Staff accounts: support, operations, finance-a, finance-b.\nSee README.md for the demo password and recovery instructions.',flush=True)
+    server=ThreadingHTTPServer((HOST,PORT),Handler);server.lookups={};server.logins={}
+    print(f'FOM — Future of Myanmar: {PUBLIC_URL or f"http://{HOST}:{PORT}"}\nSimulation only. Staff accounts: support, operations, finance-a, finance-b.\nSee README.md for the demo password and recovery instructions.',flush=True)
     try:server.serve_forever()
     except KeyboardInterrupt:pass
     finally:stop.set();server.server_close()

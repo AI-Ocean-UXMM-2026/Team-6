@@ -14,6 +14,19 @@ Open http://127.0.0.1:8800/ for the customer app, `/mobile.html` for the phone p
 
 The app creates its local SQLite database automatically in `data/`.
 
+## Live demo hosting
+
+Use the included `render.yaml` Blueprint on Render to deploy branch `main` as a free Python web service. No package installation is required. The configuration binds the server to the hosting port, supports the service's HTTPS origin, and generates private staff and callback secrets. The health check is `/api/health`.
+
+Free hosting is for the submission demo: records and uploaded receipts reset when the service restarts, redeploys, or sleeps. The first visit after inactivity may take about a minute to load. Use fictional information. Persistent storage requires a paid service and disk; set `HANDSHAKE_DB` to a location on that disk if upgrading.
+
+For another host, set `HANDSHAKE_HOST=0.0.0.0`, `PORT`, `HANDSHAKE_PUBLIC_URL` to the public HTTPS origin, and a private `HANDSHAKE_STAFF_PASSWORD`. Run `python server.py`.
+
+## Submission files
+
+- `deck.pptx`: final 15-slide presentation.
+- `video.mp4`: final pitch video (4 minutes 45 seconds).
+
 ## Included flows
 
 - Escrow: create a deal, share its code, submit a receipt, record delivery, and confirm receipt.
