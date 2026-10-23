@@ -22,9 +22,16 @@ import receipt_mvp
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 DB = Path(os.environ.get('HANDSHAKE_DB', str(ROOT / 'data/handshake.sqlite3')))
+TURSO_DATABASE_URL = os.environ.get('TURSO_DATABASE_URL', '')
+TURSO_AUTH_TOKEN = os.environ.get('TURSO_AUTH_TOKEN', '')
 PORT = int(os.environ.get('HANDSHAKE_PORT', os.environ.get('PORT', '8800')))
 HOST = os.environ.get('HANDSHAKE_HOST', '127.0.0.1')
 PUBLIC_URL = os.environ.get('HANDSHAKE_PUBLIC_URL', os.environ.get('RENDER_EXTERNAL_URL', '')).rstrip('/')
+VERCEL_ORIGINS = {'https://' + os.environ[key] for key in ('VERCEL_URL', 'VERCEL_PROJECT_PRODUCTION_URL') if os.environ.get(key)}
+if not PUBLIC_URL and os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
+    PUBLIC_URL = 'https://' + os.environ['VERCEL_PROJECT_PRODUCTION_URL']
+elif not PUBLIC_URL and os.environ.get('VERCEL_URL'):
+    PUBLIC_URL = 'https://' + os.environ['VERCEL_URL']
 if PUBLIC_URL:
     public_origin = urlparse(PUBLIC_URL)
     if public_origin.scheme not in ('http', 'https') or not public_origin.netloc or public_origin.path or public_origin.query or public_origin.fragment or public_origin.username or public_origin.password:
@@ -47,10 +54,16 @@ def require(condition, message, status=422):
 
 @contextmanager
 def connection(write=False):
-    db = sqlite3.connect(DB, timeout=15)
-    db.row_factory = sqlite3.Row
-    db.execute('PRAGMA foreign_keys=ON')
+    if TURSO_DATABASE_URL:
+        from cloud_database import Connection
+        require(bool(TURSO_AUTH_TOKEN), 'The hosted database token is missing.', 503)
+        db = Connection(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+    else:
+        require(not os.environ.get('VERCEL'), 'A hosted database must be configured for Vercel.', 503)
+        db = sqlite3.connect(DB, timeout=15)
+        db.row_factory = sqlite3.Row
     try:
+        db.execute('PRAGMA foreign_keys=ON')
         if write: db.execute('BEGIN IMMEDIATE')
         yield db
         db.commit()
@@ -59,18 +72,28 @@ def connection(write=False):
         raise
     finally: db.close()
 
+def execute_sql_script(db, source):
+    statement = ''
+    for char in source:
+        statement += char
+        if char == ';' and sqlite3.complete_statement(statement):
+            if not statement.strip().upper().startswith('PRAGMA JOURNAL_MODE'):
+                db.execute(statement)
+            statement = ''
+    if statement.strip():
+        raise ValueError('Incomplete database migration statement.')
+
+
 def initialize():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    with connection() as db:
-        db.executescript((ROOT / 'migrations/001_initial.sql').read_text())
+    if not TURSO_DATABASE_URL:
+        DB.parent.mkdir(parents=True, exist_ok=True)
+        with connection() as db:db.execute('PRAGMA journal_mode=WAL').fetchone()
+    with connection(write=True) as db:
         db.execute('CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied INTEGER NOT NULL)')
         for migration in sorted((ROOT / 'migrations').glob('*.sql')):
             if db.execute('SELECT 1 FROM schema_migrations WHERE version=?',(migration.name,)).fetchone(): continue
-            if migration.name!='001_initial.sql':
-                db.executescript('BEGIN IMMEDIATE;\n'+migration.read_text()+'\nINSERT INTO schema_migrations VALUES (\''+migration.name+'\','+str(now())+');\nCOMMIT;')
-            else:
-                db.execute('INSERT INTO schema_migrations VALUES (?,?)',(migration.name,now()))
-                db.commit()
+            execute_sql_script(db, migration.read_text())
+            db.execute('INSERT INTO schema_migrations VALUES (?,?)',(migration.name,now()))
         db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', ('callback_secret', os.environ.get('HANDSHAKE_CALLBACK_SECRET', secrets.token_hex(32))))
         db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', ('float', '10000000'))
         db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', ('route_open', 'true'))
@@ -666,7 +689,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if path=='/api/qr':
                 value=parse_qs(urlparse(self.path).query).get('text',[''])[0]
-                require(len(value)<1500 and value.startswith(('http://127.0.0.1:', 'http://localhost:')),'Only local browser-entry URLs are supported.')
+                qr_url=urlparse(value)
+                qr_origin=f'{qr_url.scheme}://{qr_url.netloc}'
+                require(len(value)<1500 and (value.startswith(('http://127.0.0.1:', 'http://localhost:')) or qr_origin in ({PUBLIC_URL} | VERCEL_ORIGINS)), 'Only this app\'s browser-entry URLs are supported.')
                 sys.path.insert(0,str(ROOT/'vendor'))
                 import qrcode
                 import qrcode.image.svg
@@ -739,7 +764,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             require(self.headers.get('X-Handshake')=='1' and self.headers.get('Content-Type','').startswith('application/json'),'Same-origin JSON request required.',403)
             origin=self.headers.get('Origin')
-            require(not origin or origin==(PUBLIC_URL or f'http://{self.headers.get("Host")}'),'Cross-origin commands are blocked.',403)
+            require(not origin or origin in (VERCEL_ORIGINS | {PUBLIC_URL or f'http://{self.headers.get("Host")}'}),'Cross-origin commands are blocked.',403)
             b=json.loads(raw)
             with connection(True) as db:
                 if path=='/api/session/create':

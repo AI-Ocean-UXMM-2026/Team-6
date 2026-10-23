@@ -14,13 +14,20 @@ Open http://127.0.0.1:8800/ for the customer app, `/mobile.html` for the phone p
 
 The app creates its local SQLite database automatically in `data/`.
 
-## Live demo hosting
+## Vercel deployment
 
-Use the included `render.yaml` Blueprint on Render to deploy branch `main` as a free Python web service. No package installation is required. The configuration binds the server to the hosting port, supports the service's HTTPS origin, and generates private staff and callback secrets. The health check is `/api/health`.
+The GitHub Actions workflow `.github/workflows/deploy-vercel.yml` deploys `main` or `master` to Vercel and supports manual runs. Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` under repository Settings → Secrets and variables → Actions. The workflow pulls the production environment, builds, and deploys the prebuilt output. It does not require connecting this organization repository to a paid Vercel team Git integration.
 
-Free hosting is for the submission demo: records and uploaded receipts reset when the service restarts, redeploys, or sleeps. The first visit after inactivity may take about a minute to load. Use fictional information. Persistent storage requires a paid service and disk; set `HANDSHAKE_DB` to a location on that disk if upgrading.
+Vercel serves `public/` and runs `api/index.py` for API requests. Shared records live in a hosted libSQL database (Turso); local SQLite files are not used on Vercel. Set these production environment variables in the Vercel project:
 
-For another host, set `HANDSHAKE_HOST=0.0.0.0`, `PORT`, `HANDSHAKE_PUBLIC_URL` to the public HTTPS origin, and a private `HANDSHAKE_STAFF_PASSWORD`. Run `python server.py`.
+- `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`: credentials for a libSQL database.
+- `HANDSHAKE_STAFF_PASSWORD`: a private staff password.
+- `HANDSHAKE_CALLBACK_SECRET`: a private simulator callback secret.
+- `HANDSHAKE_PUBLIC_URL`: the public HTTPS origin if using a custom domain. Vercel's default deployment domains are detected automatically.
+
+The database schema initializes transactionally on the first API request. Missing database configuration returns a clear unavailable response instead of using temporary local storage. The health check is `/api/health`. Simulator jobs advance on incoming API requests; the current customer receipt flow does not depend on a background worker. Use fictional information for this prototype.
+
+Presentation and video files stay in GitHub and are excluded from the deployed app bundle.
 
 ## Submission files
 

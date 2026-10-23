@@ -1,0 +1,15 @@
+.git
+.github
+deck.pptx
+video.mp4
+data
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+!.env.example
+render.yaml
+tests
+Start FOM.cmd
+Start Handshake.cmd
+Start Handshake.ps1
