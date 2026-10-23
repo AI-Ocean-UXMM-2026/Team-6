@@ -1,0 +1,26 @@
+# Local state and secrets
+.env
+.env.*
+!.env.example
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite*
+*.db-*
+*.log
+*.pid
+
+# Generated files and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+build/
+.vercel/
+.npm-cache/
+.pytest_cache/
+.DS_Store
+Thumbs.db
