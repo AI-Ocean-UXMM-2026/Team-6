@@ -7,7 +7,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "excludeFiles": "{public/**,tests/**,data/**,deck.pptx,video.mp4}"
+      "excludeFiles": "{public/**,tests/**,data/**,.github/**,**/*.cmd,**/*.ps1,deck.pptx,video.mp4,render.yaml}"
     }
   },
   "rewrites": [
